@@ -1,2 +1,5 @@
 xgboost
 gradio
+prometheus-client
+fastapi
+uvicorn

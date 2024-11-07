@@ -2,7 +2,22 @@
 import pickle
 import gradio as gr
 import pandas as pd
+from fastapi import FastAPI, Request, Response
 
+# FastAPI object
+app = FastAPI()
+
+# Define Prometheus metrics
+REQUEST_COUNT = Counter(
+    'request_count', 
+    'Total number of requests',
+    ['method', 'endpoint']
+)
+REQUEST_LATENCY = Histogram(
+    'request_latency_seconds', 
+    'Latency of requests in seconds',
+    ['endpoint']
+)
 # Load the model from the .pkl file
 with open('xgboost-model.pkl', 'rb') as file:
     loaded_model = pickle.load(file)
@@ -56,4 +71,29 @@ iface = gr.Interface(fn = predict_death_event,
                          description = description,
                          allow_flagging='never')
 
-iface.launch(share = True,debug=True,server_name="0.0.0.0", server_port = 8001)  # server_name="0.0.0.0", server_port = 8001   # Ref: https://www.gradio.app/docs/interface
+# iface.launch(share = True,debug=True,server_name="0.0.0.0", server_port = 8001)  # server_name="0.0.0.0", server_port = 8001   # Ref: https://www.gradio.app/docs/interface
+
+# Mount gradio interface object on FastAPI app at endpoint = '/'
+app = gradio.mount_gradio_app(app, iface, path="/")
+
+# Metrics route
+@app.get("/metrics")
+async def metrics(request: Request):
+    # Increment request count
+    REQUEST_COUNT.labels(method=request.method, endpoint=request.url.path).inc()
+
+    # Record the latency of the request
+    start_time = time.time()
+    response = Response(generate_latest(), media_type="text/plain")
+    process_time = time.time() - start_time
+
+    # Track the latency
+    REQUEST_LATENCY.labels(endpoint=request.url.path).observe(process_time)
+    
+    return response
+
+    
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)
+
